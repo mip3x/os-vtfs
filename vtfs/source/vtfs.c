@@ -57,7 +57,7 @@ static struct inode *vtfs_get_inode(
 }
 
 static int vtfs_fill_super(struct super_block *sb, void *data, int silent) {
-    struct inode *inode = vtfs_get_inode(sb, NULL, S_IFDIR | 0777, 1000);
+    struct inode *inode = vtfs_get_inode(sb, NULL, S_IFDIR | 0777, 100);
 
     sb->s_root = d_make_root(inode);
     if (sb->s_root == NULL) {
@@ -96,10 +96,10 @@ struct dentry *vtfs_lookup(
     ino_t root = parent_inode->i_ino;
     const char *name = child_dentry->d_name.name;
 
-    if (root == 1000 && !strcmp(name, "test.txt")) {
+    if (root == 100 && !strcmp(name, "test.txt")) {
         struct inode *inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFREG, 101);
         d_add(child_dentry, inode);
-    } else if (root == 1000 && !strcmp(name, "dir")) {
+    } else if (root == 100 && !strcmp(name, "dir")) {
         struct inode *inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFDIR, 200);
         d_add(child_dentry, inode);
     }
@@ -141,6 +141,15 @@ int vtfs_iterate(struct file *filp, struct dir_context *ctx) {
             ftype = DT_REG;
             dino = 101;
             if (dir_emit(ctx, fsname, 8, dino, ftype)) {
+                ctx->pos++;
+            }
+            return stored;
+        }
+        case 3: {
+            strcpy(fsname, "dir");
+            ftype = DT_DIR;
+            dino = 200; 
+            if (dir_emit(ctx, fsname, 3, dino, ftype)) {
                 ctx->pos++;
             }
             return stored;

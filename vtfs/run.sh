@@ -14,7 +14,6 @@ echo -e
 echo -e
 ls -li /mnt
 cd /mnt/vt
-touch test.txt
 ls -lia /mnt/vt
 echo -e
 echo -e
