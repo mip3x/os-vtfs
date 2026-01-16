@@ -89,10 +89,20 @@ static struct dentry *vtfs_mount(
 }
 
 struct dentry *vtfs_lookup(
-    struct inode* parent_inode,  // родительская нода
-    struct dentry* child_dentry, // объект, к которому мы пытаемся получить доступ
+    struct inode *parent_inode,  // родительская нода
+    struct dentry *child_dentry, // объект, к которому мы пытаемся получить доступ
     unsigned int flag            // неиспользуемое значение
 ) {
+    ino_t root = parent_inode->i_ino;
+    const char *name = child_dentry->d_name.name;
+
+    if (root == 1000 && !strcmp(name, "test.txt")) {
+        struct inode *inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFREG, 101);
+        d_add(child_dentry, inode);
+    } else if (root == 1000 && !strcmp(name, "dir")) {
+        struct inode *inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFDIR, 200);
+        d_add(child_dentry, inode);
+    }
     return NULL;
 }
 
