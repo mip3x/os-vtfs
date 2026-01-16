@@ -57,7 +57,7 @@ static struct inode *vtfs_get_inode(
 }
 
 static int vtfs_fill_super(struct super_block *sb, void *data, int silent) {
-    struct inode *inode = vtfs_get_inode(sb, NULL, S_IFDIR, 1000);
+    struct inode *inode = vtfs_get_inode(sb, NULL, S_IFDIR | 0777, 1000);
 
     sb->s_root = d_make_root(inode);
     if (sb->s_root == NULL) {
@@ -122,6 +122,15 @@ int vtfs_iterate(struct file *filp, struct dir_context *ctx) {
             ftype = DT_DIR;
             dino = dentry->d_parent->d_inode->i_ino;
             if (dir_emit(ctx, fsname, 2, dino, ftype)) {
+                ctx->pos++;
+            }
+            return stored;
+        }
+        case 2: {
+            strcpy(fsname, "test.txt");
+            ftype = DT_REG;
+            dino = 101;
+            if (dir_emit(ctx, fsname, 8, dino, ftype)) {
                 ctx->pos++;
             }
             return stored;
