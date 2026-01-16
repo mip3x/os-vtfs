@@ -17,11 +17,16 @@ static struct dentry* vtfs_mount(struct file_system_type*, int, const char*, voi
 static void vtfs_kill_sb(struct super_block*);
 static int vtfs_fill_super(struct super_block*, void*, int);
 static struct inode* vtfs_get_inode(struct super_block*, const struct inode*, umode_t, int);
+static struct dentry* vtfs_lookup(struct inode* parent_inode, struct dentry* child_dentry, unsigned int flag);
 
 struct file_system_type vtfs_fs_type = {
     .name = "vtfs",
     .mount = vtfs_mount,
     .kill_sb = vtfs_kill_sb
+};
+
+struct inode_operations vtfs_inode_ops = {
+    .lookup = vtfs_lookup
 };
 
 static struct inode *vtfs_get_inode(
@@ -39,6 +44,7 @@ static struct inode *vtfs_get_inode(
     inode->i_uid = GLOBAL_ROOT_UID;
     inode->i_gid = GLOBAL_ROOT_GID;
     inode->i_ino = i_ino;
+    inode->i_op = &vtfs_inode_ops;
 
     return inode;
 }
@@ -73,6 +79,14 @@ static struct dentry *vtfs_mount(
     }
 
     return ret;
+}
+
+struct dentry* vtfs_lookup(
+    struct inode* parent_inode,  // родительская нода
+    struct dentry* child_dentry, // объект, к которому мы пытаемся получить доступ
+    unsigned int flag            // неиспользуемое значение
+) {
+    return NULL;
 }
 
 static int __init vtfs_init(void) {
