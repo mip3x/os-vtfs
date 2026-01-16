@@ -51,7 +51,7 @@ static struct inode *vtfs_get_inode(
     inode->i_ino = i_ino;
     inode->i_op = &vtfs_inode_ops;
 
-    // inode->i_fop = &vtfs_dir_ops;
+    inode->i_fop = &vtfs_dir_ops;
 
     return inode;
 }
@@ -88,7 +88,7 @@ static struct dentry *vtfs_mount(
     return ret;
 }
 
-struct dentry* vtfs_lookup(
+struct dentry *vtfs_lookup(
     struct inode* parent_inode,  // родительская нода
     struct dentry* child_dentry, // объект, к которому мы пытаемся получить доступ
     unsigned int flag            // неиспользуемое значение
@@ -96,33 +96,39 @@ struct dentry* vtfs_lookup(
     return NULL;
 }
 
-int vtfs_iterate(struct file* filp, struct dir_context* ctx) {
+int vtfs_iterate(struct file *filp, struct dir_context *ctx) {
     char fsname[10];
     struct dentry* dentry = filp->f_path.dentry;
     struct inode* inode = dentry->d_inode;
-    unsigned long offset = filp->f_pos;
+    unsigned long offset = ctx->pos;
     int stored = 0;
     ino_t ino = inode->i_ino;
 
     unsigned char ftype;
     ino_t dino;
-    while (true) {
-        if (ino == 100) {
-            if (offset == 0) {
-                strcpy(fsname, ".");
-                ftype = DT_DIR;
-                dino = ino;
-            } else if (offset == 1) {
-                strcpy(fsname, "..");
-                ftype = DT_DIR;
-                dino = dentry->d_parent->d_inode->i_ino;
-            } else if (offset == 2) {
-                strcpy(fsname, "test.txt");
-                ftype = DT_REG;
-                dino = 101;
-            } else {
-                return stored;
+
+    switch (offset) {
+        case 0: {
+            strcpy(fsname, ".");
+            ftype = DT_DIR;
+            dino = ino;
+            if (dir_emit(ctx, fsname, 1, dino, ftype)) {
+                ctx->pos++;
             }
+            return stored;
+        }
+        case 1: {
+            strcpy(fsname, "..");
+            ftype = DT_DIR;
+            dino = dentry->d_parent->d_inode->i_ino;
+            if (dir_emit(ctx, fsname, 2, dino, ftype)) {
+                ctx->pos++;
+            }
+            return stored;
+        }
+        default: {
+            LOG("return stored!!!\n");
+            return stored;
         }
     }
 }
