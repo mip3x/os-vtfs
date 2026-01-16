@@ -4,6 +4,9 @@ BasedOnStyle: Google
 
 ColumnLimit: 100
 AccessModifierOffset: -2
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
 
 AllowShortFunctionsOnASingleLine: None
 AllowShortIfStatementsOnASingleLine: false
@@ -12,6 +15,7 @@ AllowShortLoopsOnASingleLine: false
 DerivePointerAlignment: false
 BreakConstructorInitializers: BeforeComma
 AlignAfterOpenBracket: BlockIndent
+PointerAlignment: Right
 
 BinPackArguments: false
 BinPackParameters: false
