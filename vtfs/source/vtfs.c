@@ -24,7 +24,7 @@ struct file_system_type vtfs_fs_type = {
     .kill_sb = vtfs_kill_sb
 };
 
-struct inode *vtfs_get_inode(
+static struct inode *vtfs_get_inode(
     struct super_block *sb,
     const struct inode *dir,
     umode_t mode,
@@ -43,7 +43,7 @@ struct inode *vtfs_get_inode(
     return inode;
 }
 
-int vtfs_fill_super(struct super_block *sb, void *data, int silent) {
+static int vtfs_fill_super(struct super_block *sb, void *data, int silent) {
     struct inode *inode = vtfs_get_inode(sb, NULL, S_IFDIR, 1000);
 
     sb->s_root = d_make_root(inode);
@@ -55,11 +55,11 @@ int vtfs_fill_super(struct super_block *sb, void *data, int silent) {
     return 0;
 }
 
-void vtfs_kill_sb(struct super_block* sb) {
+static void vtfs_kill_sb(struct super_block* sb) {
     LOG("vtfs super block is destroyed. Unmount successfully.\n");
 }
 
-struct dentry *vtfs_mount(
+static struct dentry *vtfs_mount(
     struct file_system_type *fs_type,
     int flags,
     const char *token,
