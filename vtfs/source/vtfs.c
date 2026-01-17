@@ -56,7 +56,7 @@ static ssize_t vtfs_write(struct file *filp, const char __user *buffer, size_t l
 
 // backend group
 static int vtfs_store_find(ino_t parent_ino, const char *name, struct vtfs_node **out);
-static int vtfs_store_add(ino_t parent_ino, const char *name, umode_t mode, bool type, struct vtfs_node **out);
+static int vtfs_store_add(int *slot, struct vtfs_node **out);
 static int vtfs_store_remove(struct inode *parent_inode, struct vtfs_node *node, bool type);
 static int vtfs_store_list(ino_t parent_ino, struct vtfs_node **list, size_t *count);
 
@@ -115,6 +115,23 @@ static int vtfs_store_remove(struct inode *parent_inode, struct vtfs_node *node,
         parent_node->children--;
     }
 
+    return 0;
+}
+
+static int vtfs_store_add(int *slot, struct vtfs_node **out) {
+    *slot = -1;
+    for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
+        if (vtfs_nodes[i].ino == 0 && *slot == -1) {
+            *slot = (int)i;
+            break;
+        }
+    }
+
+    if (*slot == -1) {
+        return -ENOSPC;
+    }
+
+    *out = &vtfs_nodes[*slot];
     return 0;
 }
 
@@ -242,8 +259,6 @@ static int vtfs_mkobj(
         return -ENAMETOOLONG;
     }
 
-    int slot = -1;
-
     struct vtfs_node *node = NULL;
     int ret = vtfs_store_find(root, name, &node);
     if (ret == 0) {
@@ -259,15 +274,10 @@ static int vtfs_mkobj(
         return ret;
     }
 
-    for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
-        if (vtfs_nodes[i].ino == 0 && slot == -1) {
-            slot = (int)i;
-            break;
-        }
-    }
-
-    if (slot == -1) {
-        return -ENOSPC;
+    int slot = -1;
+    ret = vtfs_store_add(&slot, &node);
+    if (ret != 0) {
+        return ret;
     }
 
     struct inode *inode = NULL;
