@@ -141,6 +141,7 @@ static struct dentry *vtfs_lookup(
 
             inode->i_op = &vtfs_inode_ops;
             inode->i_fop = &vtfs_file_ops;
+            atomic_inc(&inode->i_count);
 
             break;
         }
@@ -212,58 +213,29 @@ static int vtfs_unlink(struct inode *parent_inode, struct dentry *child_dentry) 
 }
 
 static int vtfs_iterate(struct file *filp, struct dir_context *ctx) {
-    char fsname[10];
-    struct dentry* dentry = filp->f_path.dentry;
-    struct inode* inode = dentry->d_inode;
-    unsigned long offset = ctx->pos;
-    int stored = 0;
-    ino_t ino = inode->i_ino;
+    struct inode *inode = filp->f_path.dentry->d_inode;
+    ino_t root = inode->i_ino;
+    size_t child_idx = 0;
 
-    unsigned char ftype;
-    ino_t dino;
-
-    switch (offset) {
-        case 0: {
-            strcpy(fsname, ".");
-            ftype = DT_DIR;
-            dino = ino;
-            if (dir_emit(ctx, fsname, 1, dino, ftype)) {
-                ctx->pos++;
-            }
-            return stored;
-        }
-        case 1: {
-            strcpy(fsname, "..");
-            ftype = DT_DIR;
-            dino = dentry->d_parent->d_inode->i_ino;
-            if (dir_emit(ctx, fsname, 2, dino, ftype)) {
-                ctx->pos++;
-            }
-            return stored;
-        }
-        case 2: {
-            strcpy(fsname, "test.txt");
-            ftype = DT_REG;
-            dino = 101;
-            if (dir_emit(ctx, fsname, 8, dino, ftype)) {
-                ctx->pos++;
-            }
-            return stored;
-        }
-        case 3: {
-            strcpy(fsname, "dir");
-            ftype = DT_DIR;
-            dino = 200; 
-            if (dir_emit(ctx, fsname, 3, dino, ftype)) {
-                ctx->pos++;
-            }
-            return stored;
-        }
-        default: {
-            LOG("return stored!!!\n");
-            return stored;
-        }
+    if (!dir_emit_dots(filp, ctx)) {
+        return 0;
     }
+
+    for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
+        struct vtfs_node *node = &vtfs_nodes[i];
+        if (node->ino == 0 || node->parent_ino != root) {
+            continue;
+        }
+
+        unsigned char ftype = S_ISDIR(node->mode) ? DT_DIR : DT_REG;
+
+        if (!dir_emit(ctx, node->name, strlen(node->name), node->ino, ftype)) {
+            return 0;
+        }
+        ctx->pos++;
+    }
+
+    return 0;
 }
 
 static int __init vtfs_init(void) {
