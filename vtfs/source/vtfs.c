@@ -31,7 +31,7 @@ static struct vtfs_node vtfs_nodes[VTFS_NODES_MAX];
 static struct dentry* vtfs_mount(struct file_system_type*, int, const char*, void*);
 static void vtfs_kill_sb(struct super_block*);
 static int vtfs_fill_super(struct super_block*, void*, int);
-static struct inode* vtfs_get_inode(struct super_block*, const struct inode*, umode_t, int);
+static struct inode* vtfs_get_inode(struct super_block*, const struct inode*, umode_t, int, struct mnt_idmap *idmap);
 static struct dentry* vtfs_lookup(struct inode* parent_inode, struct dentry* child_dentry, unsigned int flag);
 static int vtfs_create(struct mnt_idmap *idmap, struct inode* parent_inode, struct dentry* child_dentry, umode_t mode, bool b);
 static int vtfs_unlink(struct inode *parent_inode, struct dentry *child_dentry);
@@ -62,17 +62,18 @@ static struct inode *vtfs_get_inode(
     struct super_block *sb,
     const struct inode *dir,
     umode_t mode,
-    int i_ino
+    int i_ino,
+    struct mnt_idmap *idmap
 ) {
     struct inode *inode = new_inode(sb);
     if (inode == NULL) {
         return NULL;
     }
 
-    inode->i_mode = mode;
-    inode->i_uid = GLOBAL_ROOT_UID;
-    inode->i_gid = GLOBAL_ROOT_GID;
-    inode->i_ino = i_ino;
+    if (idmap == NULL) {
+        idmap = &nop_mnt_idmap;
+    }
+    inode_init_owner(idmap, inode, dir, mode);
 
     if (S_ISDIR(mode)) {
         inode->i_op = &vtfs_inode_ops;
@@ -80,11 +81,12 @@ static struct inode *vtfs_get_inode(
         inc_nlink(inode);
     }
 
+    inode->i_ino = i_ino;
     return inode;
 }
 
 static int vtfs_fill_super(struct super_block *sb, void *data, int silent) {
-    struct inode *inode = vtfs_get_inode(sb, NULL, S_IFDIR | 0777, ROOT_INODE_NUM);
+    struct inode *inode = vtfs_get_inode(sb, NULL, S_IFDIR | 0777, ROOT_INODE_NUM, NULL);
     if (inode == NULL) {
         return -ENOMEM;
     }
@@ -110,9 +112,9 @@ static struct dentry *vtfs_mount(
 ) {
     struct dentry *ret = mount_nodev(fs_type, flags, data, vtfs_fill_super);
     if (ret == NULL) {
-        ERR("Can't mount file system");
+        ERR("Can't mount file system\n");
     } else {
-        LOG("Mounted successfully");
+        LOG("Mounted successfully\n");
     }
 
     return ret;
@@ -134,7 +136,8 @@ static struct dentry *vtfs_lookup(
     for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
         if (vtfs_nodes[i].parent_ino == root && !strcmp(vtfs_nodes[i].name, name)) {
             inode = vtfs_get_inode(parent_inode->i_sb, NULL,
-                                                 vtfs_nodes[i].mode, (int)vtfs_nodes[i].ino);
+                                   vtfs_nodes[i].mode, (int)vtfs_nodes[i].ino,
+                                   NULL);
             if (inode == NULL) {
                 return ERR_PTR(-ENOMEM);
             }
@@ -170,6 +173,7 @@ static int vtfs_create(
     for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
         if (vtfs_nodes[i].ino != 0 && vtfs_nodes[i].parent_ino == root) {
             if (!strcmp(name, vtfs_nodes[i].name)) {
+                ERR("file %s already exists\n", name);
                 return -EEXIST;
             }
         } else if (vtfs_nodes[i].ino == 0 && slot == -1) {
@@ -181,7 +185,7 @@ static int vtfs_create(
         return -ENOSPC;
     }
 
-    struct inode *inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFREG | mode, ROOT_INODE_NUM + 1 + slot);
+    struct inode *inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFREG | mode, ROOT_INODE_NUM + 1 + slot, idmap);
     if (inode == NULL) {
         return -ENOMEM;
     }
@@ -196,7 +200,7 @@ static int vtfs_create(
 
     d_instantiate(child_dentry, inode);
 
-    LOG("created file %s", name);
+    LOG("created file %s\n", name);
     return 0;
 }
 
@@ -213,7 +217,7 @@ static int vtfs_unlink(struct inode *parent_inode, struct dentry *child_dentry) 
 
             d_drop(child_dentry);
 
-            LOG("deleted file %s", name);
+            LOG("deleted file %s\n", name);
             return 0;
         }
     }
