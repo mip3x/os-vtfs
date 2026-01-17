@@ -224,7 +224,6 @@ static int vtfs_unlink(struct inode *parent_inode, struct dentry *child_dentry) 
 static int vtfs_iterate(struct file *filp, struct dir_context *ctx) {
     struct inode *inode = filp->f_path.dentry->d_inode;
     ino_t root = inode->i_ino;
-    size_t child_idx = 0;
 
     if (!dir_emit_dots(filp, ctx)) {
         return 0;
