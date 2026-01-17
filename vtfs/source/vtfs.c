@@ -24,7 +24,7 @@ struct vtfs_node {
     ino_t parent_ino;
     ino_t ino;
     umode_t mode;
-    size_t kids;
+    size_t children;
 };
 
 static struct vtfs_node vtfs_nodes[VTFS_NODES_MAX];
@@ -151,10 +151,7 @@ static struct dentry *vtfs_lookup(
                 return ERR_PTR(-ENOMEM);
             }
 
-            inode->i_op = &vtfs_inode_ops;
-            inode->i_fop = &vtfs_file_ops;
             atomic_inc(&inode->i_count);
-
             break;
         }
     }
@@ -203,7 +200,7 @@ static int vtfs_mkdir(
 
     struct vtfs_node *parent_node = (struct vtfs_node *)parent_inode->i_private;
     if (parent_node != NULL) {
-        parent_node->kids++;
+        parent_node->children++;
     }
 
     vtfs_nodes[slot].ino = inode->i_ino;
@@ -259,7 +256,7 @@ static int vtfs_create(
 
     struct vtfs_node *parent_node = (struct vtfs_node *)parent_inode->i_private;
     if (parent_node != NULL) {
-        parent_node->kids++;
+        parent_node->children++;
     }
     
     vtfs_nodes[slot].ino = inode->i_ino;
@@ -280,7 +277,7 @@ static int vtfs_rmdir(struct inode *parent_inode, struct dentry *child_dentry) {
     for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
         struct vtfs_node *node = &vtfs_nodes[i];
         if (node->parent_ino == root && !strcmp(node->name, name)) {
-            if (node->kids != 0) {
+            if (node->children != 0) {
                 return -ENOTEMPTY;
             }
             if (!S_ISDIR(node->mode)) {
@@ -291,6 +288,11 @@ static int vtfs_rmdir(struct inode *parent_inode, struct dentry *child_dentry) {
             vtfs_nodes[i].ino = 0;
             vtfs_nodes[i].parent_ino = 0;
             vtfs_nodes[i].mode = 0;
+
+            struct vtfs_node *parent_node = (struct vtfs_node *)parent_inode->i_private;
+            if (parent_node != NULL) {
+                parent_node->children--;
+            }
 
             drop_nlink(parent_inode);
             d_drop(child_dentry);
@@ -314,6 +316,11 @@ static int vtfs_unlink(struct inode *parent_inode, struct dentry *child_dentry) 
             vtfs_nodes[i].parent_ino = 0;
             vtfs_nodes[i].mode = 0;
 
+            struct vtfs_node *parent_node = (struct vtfs_node *)parent_inode->i_private;
+            if (parent_node != NULL) {
+                parent_node->children--;
+            }
+
             d_drop(child_dentry);
 
             LOG("deleted file %s\n", name);
@@ -332,7 +339,7 @@ static int vtfs_iterate(struct file *filp, struct dir_context *ctx) {
         return 0;
     }
 
-    for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
+    for (size_t i = filp->f_pos; i < VTFS_NODES_MAX; i++) {
         struct vtfs_node *node = &vtfs_nodes[i];
         if (node->ino == 0 || node->parent_ino != root) {
             continue;
@@ -341,10 +348,11 @@ static int vtfs_iterate(struct file *filp, struct dir_context *ctx) {
         unsigned char ftype = S_ISDIR(node->mode) ? DT_DIR : DT_REG;
 
         if (!dir_emit(ctx, node->name, strlen(node->name), node->ino, ftype)) {
+            filp->f_pos = (loff_t)i;
             return 0;
         }
-        ctx->pos++;
     }
+    filp->f_pos = VTFS_NODES_MAX - 1;
 
     return 0;
 }
