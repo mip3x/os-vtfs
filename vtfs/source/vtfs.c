@@ -80,12 +80,11 @@ static struct inode *vtfs_get_inode(
     }
     inode_init_owner(idmap, inode, dir, mode);
 
+    inode->i_op = &vtfs_inode_ops;
     if (S_ISDIR(mode)) {
-        inode->i_op = &vtfs_inode_ops;
         inode->i_fop = &vtfs_dir_ops;
         inc_nlink(inode);
     } else {
-        inode->i_op = &vtfs_inode_ops;
         inode->i_fop = &vtfs_file_ops;
     }
 
