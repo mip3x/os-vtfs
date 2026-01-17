@@ -57,7 +57,7 @@ static ssize_t vtfs_write(struct file *filp, const char __user *buffer, size_t l
 // backend group
 static int vtfs_store_find(ino_t parent_ino, const char *name, struct vtfs_node **out);
 static int vtfs_store_add(ino_t parent_ino, const char *name, umode_t mode, bool type, struct vtfs_node **out);
-static int vtfs_store_remove(ino_t parent_ino, const char *name, bool is_dir);
+static int vtfs_store_remove(struct inode *parent_inode, struct vtfs_node *node, bool type);
 static int vtfs_store_list(ino_t parent_ino, struct vtfs_node **list, size_t *count);
 
 struct file_system_type vtfs_fs_type = {
@@ -91,6 +91,31 @@ static int vtfs_store_find(ino_t parent_ino, const char *name, struct vtfs_node 
         }
     }
     return -ENOENT;
+}
+
+static int vtfs_store_remove(struct inode *parent_inode, struct vtfs_node *node, bool type) {
+    if (type == FTYPE_DIR && node->children != 0) {
+        return -ENOTEMPTY;
+    }
+    if (type == FTYPE_DIR && !S_ISDIR(node->mode)) {
+        return -ENOTDIR;
+    }
+    if (type == FTYPE_FILE && S_ISDIR(node->mode)) {
+        return -EISDIR;
+    }
+
+    memset(node->name, 0, sizeof(node->name));
+    node->ino = 0;
+    node->parent_ino = 0;
+    node->mode = 0;
+    node->children = 0;
+
+    struct vtfs_node *parent_node = (struct vtfs_node *)parent_inode->i_private;
+    if (parent_node != NULL) {
+        parent_node->children--;
+    }
+
+    return 0;
 }
 
 static struct inode *vtfs_get_inode(
@@ -313,42 +338,27 @@ static int vtfs_rmobj(
 
     struct vtfs_node *node = NULL;
     int ret = vtfs_store_find(root, name, &node);
-    if (ret == 0) {
-        if (type == FTYPE_DIR && node->children != 0) {
-            return -ENOTEMPTY;
-        }
-        if (type == FTYPE_DIR && !S_ISDIR(node->mode)) {
-            return -ENOTDIR;
-        }
-        if (type == FTYPE_FILE && S_ISDIR(node->mode)) {
-            return -EISDIR;
-        }
-
-        memset(node->name, 0, sizeof(node->name));
-        node->ino = 0;
-        node->parent_ino = 0;
-        node->mode = 0;
-        node->children = 0;
-
-        struct vtfs_node *parent_node = (struct vtfs_node *)parent_inode->i_private;
-        if (parent_node != NULL) {
-            parent_node->children--;
-        }
-
-        if (type == FTYPE_DIR) {
-            drop_nlink(parent_inode);
-        }
-        d_drop(child_dentry);
-
-        if (type == FTYPE_DIR) {
-            LOG("deleted dir %s\n", name);
-        } else {
-            LOG("deleted file %s\n", name);
-        }
-        return 0;
+    if (ret != 0) {
+        return ret;
     }
 
-    return -ENOENT;
+    ret = vtfs_store_remove(parent_inode, node, type);
+    if (ret != 0) {
+        return ret;
+    }
+
+    if (type == FTYPE_DIR) {
+        drop_nlink(parent_inode);
+    }
+    d_drop(child_dentry);
+
+    if (type == FTYPE_DIR) {
+        LOG("deleted dir %s\n", name);
+    } else {
+        LOG("deleted file %s\n", name);
+    }
+
+    return 0;
 }
 
 static int vtfs_rmdir(struct inode *parent_inode, struct dentry *child_dentry) {
