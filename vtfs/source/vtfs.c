@@ -82,8 +82,7 @@ static struct inode *vtfs_get_inode(
 
     if (S_ISDIR(mode)) {
         inode->i_op = &vtfs_inode_ops;
-        // inode->i_fop = &vtfs_dir_ops;
-        inode->i_fop = &simple_dir_operations;
+        inode->i_fop = &vtfs_dir_ops;
         inc_nlink(inode);
     } else {
         inode->i_op = &vtfs_inode_ops;
@@ -335,24 +334,33 @@ static int vtfs_iterate(struct file *filp, struct dir_context *ctx) {
     struct inode *inode = filp->f_path.dentry->d_inode;
     ino_t root = inode->i_ino;
 
+    // skip '.' & '..'
     if (!dir_emit_dots(filp, ctx)) {
         return 0;
     }
 
-    for (size_t i = filp->f_pos; i < VTFS_NODES_MAX; i++) {
+    size_t want_skip = (ctx->pos >= 2) ? (size_t)(ctx->pos - 2) : 0;
+    size_t idx = 0;
+
+    for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
         struct vtfs_node *node = &vtfs_nodes[i];
         if (node->ino == 0 || node->parent_ino != root) {
             continue;
         }
 
-        unsigned char ftype = S_ISDIR(node->mode) ? DT_DIR : DT_REG;
+        if (idx < want_skip) {
+            idx++;
+            continue;
+        }
 
+        unsigned char ftype = S_ISDIR(node->mode) ? DT_DIR : DT_REG;
         if (!dir_emit(ctx, node->name, strlen(node->name), node->ino, ftype)) {
-            filp->f_pos = (loff_t)i;
             return 0;
         }
+
+        ctx->pos++;
+        idx++;
     }
-    filp->f_pos = VTFS_NODES_MAX - 1;
 
     return 0;
 }
