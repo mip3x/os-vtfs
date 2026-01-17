@@ -18,6 +18,8 @@ MODULE_DESCRIPTION("A simple FS kernel module");
 
 #define VTFS_NODES_MAX 1024
 #define ROOT_INODE_NUM 1
+#define FTYPE_FILE 0
+#define FTYPE_DIR 1
 
 struct vtfs_node {
     char name[NAME_MAX];
@@ -33,11 +35,19 @@ static struct dentry* vtfs_mount(struct file_system_type*, int, const char*, voi
 static void vtfs_kill_sb(struct super_block*);
 static int vtfs_fill_super(struct super_block*, void*, int);
 static struct inode* vtfs_get_inode(struct super_block*, const struct inode*, umode_t, int, struct mnt_idmap *idmap);
+
+// traverse group
 static struct dentry* vtfs_lookup(struct inode *parent_inode, struct dentry *child_dentry, unsigned int flag);
-static int vtfs_create(struct mnt_idmap *idmap, struct inode *parent_inode, struct dentry *child_dentry, umode_t mode, bool b);
-static int vtfs_unlink(struct inode *parent_inode, struct dentry *child_dentry);
 static int vtfs_iterate(struct file *filp, struct dir_context *ctx);
+
+// create group
+static int vtfs_mkobj(struct mnt_idmap *idmap, struct inode *parent_inode, struct dentry *child_dentry, umode_t mode, bool type);
+static int vtfs_create(struct mnt_idmap *idmap, struct inode *parent_inode, struct dentry *child_dentry, umode_t mode, bool b);
 static int vtfs_mkdir(struct mnt_idmap *idmap, struct inode *parent_inode, struct dentry *child_dentry, umode_t mode);
+
+// remove group
+static int vtfs_rmobj(struct inode *parent_inode, struct dentry *child_dentry, bool type);
+static int vtfs_unlink(struct inode *parent_inode, struct dentry *child_dentry);
 static int vtfs_rmdir(struct inode *parent_inode, struct dentry *child_dentry);
 
 struct file_system_type vtfs_fs_type = {
@@ -158,11 +168,14 @@ static struct dentry *vtfs_lookup(
     return NULL;
 }
 
-static int vtfs_mkdir(
+// creates file or dir
+// depends on type
+static int vtfs_mkobj(
     struct mnt_idmap *idmap,
     struct inode *parent_inode,
     struct dentry *child_dentry,
-    umode_t mode
+    umode_t mode,
+    bool type // 0 - file; 1 - dir
 ) {
     ino_t root = parent_inode->i_ino;
     const char *name = (const char *)child_dentry->d_name.name;
@@ -176,7 +189,11 @@ static int vtfs_mkdir(
     for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
         if (vtfs_nodes[i].ino != 0 && vtfs_nodes[i].parent_ino == root) {
             if (!strcmp(name, vtfs_nodes[i].name)) {
-                ERR("dir %s already exists\n", name);
+                if (type == FTYPE_DIR) {
+                    ERR("dir %s already exists\n", name);
+                } else {
+                    ERR("file %s already exists\n", name);
+                }
                 return -EEXIST;
             }
         } else if (vtfs_nodes[i].ino == 0 && slot == -1) {
@@ -188,7 +205,12 @@ static int vtfs_mkdir(
         return -ENOSPC;
     }
 
-    struct inode *inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFDIR | mode, ROOT_INODE_NUM + 1 + slot, idmap);
+    struct inode *inode = NULL;
+    if (type == FTYPE_DIR) {
+        inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFDIR | mode, ROOT_INODE_NUM + 1 + slot, idmap);
+    } else {
+        inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFREG | mode, ROOT_INODE_NUM + 1 + slot, idmap);
+    }
     if (inode == NULL) {
         return -ENOMEM;
     }
@@ -206,11 +228,27 @@ static int vtfs_mkdir(
     vtfs_nodes[slot].mode = inode->i_mode;
     strscpy(vtfs_nodes[slot].name, name, sizeof(vtfs_nodes[slot].name));
 
-    inc_nlink(parent_inode);
+    if (type == FTYPE_DIR) {
+        // increment hard links count for parent_inode
+        inc_nlink(parent_inode);
+    }
     d_instantiate(child_dentry, inode);
 
-    LOG("created dir %s\n", name);
+    if (type == 1) {
+        LOG("created dir %s\n", name);
+    } else {
+        LOG("created file %s\n", name);
+    }
     return 0;
+}
+
+static int vtfs_mkdir(
+    struct mnt_idmap *idmap,
+    struct inode *parent_inode,
+    struct dentry *child_dentry,
+    umode_t mode
+) {
+    return vtfs_mkobj(idmap, parent_inode, child_dentry, mode, FTYPE_DIR);
 }
 
 static int vtfs_create(
@@ -220,82 +258,53 @@ static int vtfs_create(
     umode_t mode, 
     bool b
 ) {
-    ino_t root = parent_inode->i_ino;
-    const char *name = (const char *)child_dentry->d_name.name;
-
-    if (child_dentry->d_name.len > NAME_MAX) {
-        return -ENAMETOOLONG;
-    }
-
-    int slot = -1;
-
-    for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
-        if (vtfs_nodes[i].ino != 0 && vtfs_nodes[i].parent_ino == root) {
-            if (!strcmp(name, vtfs_nodes[i].name)) {
-                ERR("file %s already exists\n", name);
-                return -EEXIST;
-            }
-        } else if (vtfs_nodes[i].ino == 0 && slot == -1) {
-            slot = (int)i;
-        }
-    }
-
-    if (slot == -1) {
-        return -ENOSPC;
-    }
-
-    struct inode *inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFREG | mode, ROOT_INODE_NUM + 1 + slot, idmap);
-    if (inode == NULL) {
-        return -ENOMEM;
-    }
-
-    // double link: now we have ability to get struct vtfs_node from inode and vice-versa
-    inode->i_private = &vtfs_nodes[slot];
-
-    struct vtfs_node *parent_node = (struct vtfs_node *)parent_inode->i_private;
-    if (parent_node != NULL) {
-        parent_node->children++;
-    }
-    
-    vtfs_nodes[slot].ino = inode->i_ino;
-    vtfs_nodes[slot].parent_ino = root;
-    vtfs_nodes[slot].mode = inode->i_mode;
-    strscpy(vtfs_nodes[slot].name, name, sizeof(vtfs_nodes[slot].name));
-
-    d_instantiate(child_dentry, inode);
-
-    LOG("created file %s\n", name);
-    return 0;
+    return vtfs_mkobj(idmap, parent_inode, child_dentry, mode, FTYPE_FILE);
 }
 
-static int vtfs_rmdir(struct inode *parent_inode, struct dentry *child_dentry) {
+// removes file or dir
+// depends on type
+static int vtfs_rmobj(
+    struct inode *parent_inode,
+    struct dentry *child_dentry,
+    bool type // 0 - file; 1 - dir
+) {
     const char *name = child_dentry->d_name.name;
     ino_t root = parent_inode->i_ino;
 
     for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
         struct vtfs_node *node = &vtfs_nodes[i];
         if (node->parent_ino == root && !strcmp(node->name, name)) {
-            if (node->children != 0) {
+            if (type == FTYPE_DIR && node->children != 0) {
                 return -ENOTEMPTY;
             }
-            if (!S_ISDIR(node->mode)) {
+            if (type == FTYPE_DIR && !S_ISDIR(node->mode)) {
                 return -ENOTDIR;
+            }
+            if (type == FTYPE_FILE && S_ISDIR(node->mode)) {
+                return -EISDIR;
             }
 
             memset(vtfs_nodes[i].name, 0, sizeof(vtfs_nodes[i].name));
             vtfs_nodes[i].ino = 0;
             vtfs_nodes[i].parent_ino = 0;
             vtfs_nodes[i].mode = 0;
+            vtfs_nodes[i].children = 0;
 
             struct vtfs_node *parent_node = (struct vtfs_node *)parent_inode->i_private;
             if (parent_node != NULL) {
                 parent_node->children--;
             }
 
-            drop_nlink(parent_inode);
+            if (type == FTYPE_DIR) {
+                drop_nlink(parent_inode);
+            }
             d_drop(child_dentry);
 
-            LOG("deleted dir %s\n", name);
+            if (type == FTYPE_DIR) {
+                LOG("deleted dir %s\n", name);
+            } else {
+                LOG("deleted file %s\n", name);
+            }
             return 0;
         }
     }
@@ -303,30 +312,12 @@ static int vtfs_rmdir(struct inode *parent_inode, struct dentry *child_dentry) {
     return -ENOENT;
 }
 
+static int vtfs_rmdir(struct inode *parent_inode, struct dentry *child_dentry) {
+    return vtfs_rmobj(parent_inode, child_dentry, FTYPE_DIR);
+}
+
 static int vtfs_unlink(struct inode *parent_inode, struct dentry *child_dentry) {
-    const char *name = child_dentry->d_name.name;
-    ino_t root = parent_inode->i_ino;
-
-    for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
-        if (vtfs_nodes[i].parent_ino == root && !strcmp(vtfs_nodes[i].name, name)) {
-            memset(vtfs_nodes[i].name, 0, sizeof(vtfs_nodes[i].name));
-            vtfs_nodes[i].ino = 0;
-            vtfs_nodes[i].parent_ino = 0;
-            vtfs_nodes[i].mode = 0;
-
-            struct vtfs_node *parent_node = (struct vtfs_node *)parent_inode->i_private;
-            if (parent_node != NULL) {
-                parent_node->children--;
-            }
-
-            d_drop(child_dentry);
-
-            LOG("deleted file %s\n", name);
-            return 0;
-        }
-    }
-
-    return -ENOENT;
+    return vtfs_rmobj(parent_inode, child_dentry, FTYPE_FILE);
 }
 
 static int vtfs_iterate(struct file *filp, struct dir_context *ctx) {
