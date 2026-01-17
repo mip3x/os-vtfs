@@ -204,12 +204,21 @@ static int vtfs_unlink(struct inode *parent_inode, struct dentry *child_dentry) 
     const char *name = child_dentry->d_name.name;
     ino_t root = parent_inode->i_ino;
 
-    if (root == 100 && !strcmp(name, "test.txt")) {
-        mask &= ~1;
-    } else if (root == 100 && !strcmp(name, "new_file.txt")) {
-        mask &= ~2;
+    for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
+        if (vtfs_nodes[i].parent_ino == root && !strcmp(vtfs_nodes[i].name, name)) {
+            memset(vtfs_nodes[i].name, 0, sizeof(vtfs_nodes[i].name));
+            vtfs_nodes[i].ino = 0;
+            vtfs_nodes[i].parent_ino = 0;
+            vtfs_nodes[i].mode = 0;
+
+            d_drop(child_dentry);
+
+            LOG("deleted file %s", name);
+            return 0;
+        }
     }
-    return 0;
+
+    return -ENOENT;
 }
 
 static int vtfs_iterate(struct file *filp, struct dir_context *ctx) {
