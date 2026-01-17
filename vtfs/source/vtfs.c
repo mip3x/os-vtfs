@@ -57,6 +57,7 @@ static ssize_t vtfs_write(struct file *filp, const char __user *buffer, size_t l
 // backend group
 static int vtfs_store_find(ino_t parent_ino, const char *name, struct vtfs_node **out);
 static int vtfs_store_add(int *slot, struct vtfs_node **out);
+static int vtfs_store_fill(struct inode *parent_inode, struct inode *inode, const char *name);
 static int vtfs_store_remove(struct inode *parent_inode, struct vtfs_node *node, bool type);
 static int vtfs_store_list(ino_t parent_ino, struct vtfs_node **list, size_t *count);
 
@@ -132,6 +133,26 @@ static int vtfs_store_add(int *slot, struct vtfs_node **out) {
     }
 
     *out = &vtfs_nodes[*slot];
+    return 0;
+}
+
+static int vtfs_store_fill(struct inode *parent_inode, struct inode *inode, const char *name) {
+    struct vtfs_node *parent_node = (struct vtfs_node *)parent_inode->i_private;
+    if (parent_node != NULL) {
+        parent_node->children++;
+    }
+
+    struct vtfs_node *node = (struct vtfs_node *)inode->i_private;
+    if (node == NULL) {
+        return -EFAULT;
+    }
+
+    node->ino = inode->i_ino;
+    node->parent_ino = parent_inode->i_ino;
+    node->mode = inode->i_mode;
+    node->children = 0;
+    strscpy(node->name, name, sizeof(node->name));
+
     return 0;
 }
 
@@ -291,17 +312,11 @@ static int vtfs_mkobj(
     }
 
     // double link: now we have ability to get struct vtfs_node from inode and vice-versa
-    inode->i_private = &vtfs_nodes[slot];
-
-    struct vtfs_node *parent_node = (struct vtfs_node *)parent_inode->i_private;
-    if (parent_node != NULL) {
-        parent_node->children++;
+    inode->i_private = node;
+    ret = vtfs_store_fill(parent_inode, inode, name);
+    if (ret != 0) {
+        return ret;
     }
-
-    vtfs_nodes[slot].ino = inode->i_ino;
-    vtfs_nodes[slot].parent_ino = root;
-    vtfs_nodes[slot].mode = inode->i_mode;
-    strscpy(vtfs_nodes[slot].name, name, sizeof(vtfs_nodes[slot].name));
 
     if (type == FTYPE_DIR) {
         // increment hard links count for parent_inode
@@ -309,7 +324,7 @@ static int vtfs_mkobj(
     }
     d_instantiate(child_dentry, inode);
 
-    if (type == 1) {
+    if (type == FTYPE_DIR) {
         LOG("created dir %s\n", name);
     } else {
         LOG("created file %s\n", name);
