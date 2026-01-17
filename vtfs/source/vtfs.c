@@ -3,7 +3,9 @@
 #include <linux/printk.h>
 #include <linux/fs.h>
 #include <linux/mount.h>
-#include <cstring>
+
+// references:
+// https://docs.kernel.org/filesystems/vfs.html
 
 #define MODULE_NAME "vtfs"
 
@@ -121,6 +123,31 @@ static struct dentry *vtfs_lookup(
     struct dentry *child_dentry, // объект, к которому мы пытаемся получить доступ
     unsigned int flag            // неиспользуемое значение
 ) {
+    ino_t root = parent_inode->i_ino;
+    const char *name = (const char *)child_dentry->d_name.name;
+    struct inode *inode = NULL;
+
+    if (child_dentry->d_name.len > NAME_MAX) {
+        return ERR_PTR(-ENAMETOOLONG);
+    }
+
+    for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
+        if (vtfs_nodes[i].parent_ino == root && !strcmp(vtfs_nodes[i].name, name)) {
+            inode = vtfs_get_inode(parent_inode->i_sb, NULL,
+                                                 vtfs_nodes[i].mode, (int)vtfs_nodes[i].ino);
+            if (inode == NULL) {
+                return ERR_PTR(-ENOMEM);
+            }
+
+            inode->i_op = &vtfs_inode_ops;
+            inode->i_fop = &vtfs_file_ops;
+
+            break;
+        }
+    }
+
+    d_add(child_dentry, inode);
+    return NULL;
 }
 
 static int vtfs_create(
@@ -131,9 +158,9 @@ static int vtfs_create(
     bool b
 ) {
     ino_t root = parent_inode->i_ino;
-    const char *name = child_dentry->d_name.name;
+    const char *name = (const char *)child_dentry->d_name.name;
 
-    if (strlen(name) > NAME_MAX) {
+    if (child_dentry->d_name.len > NAME_MAX) {
         return -ENAMETOOLONG;
     }
 
@@ -166,7 +193,7 @@ static int vtfs_create(
     vtfs_nodes[slot].mode = inode->i_mode;
     strscpy(vtfs_nodes[slot].name, name, sizeof(vtfs_nodes[slot].name));
 
-    d_add(child_dentry, inode);
+    d_instantiate(child_dentry, inode);
 
     LOG("created file %s", name);
     return 0;
