@@ -3,6 +3,7 @@
 #include <linux/printk.h>
 #include <linux/fs.h>
 #include <linux/mount.h>
+#include <cstring>
 
 #define MODULE_NAME "vtfs"
 
@@ -12,6 +13,18 @@ MODULE_DESCRIPTION("A simple FS kernel module");
 
 #define LOG(fmt, ...) pr_info("[" MODULE_NAME "]: " fmt, ##__VA_ARGS__)
 #define ERR(fmt, ...) pr_err("[" MODULE_NAME "]: " fmt, ##__VA_ARGS__)
+
+#define VTFS_NODES_MAX 1024
+#define ROOT_INODE_NUM 1
+
+struct vtfs_node {
+    char name[NAME_MAX];
+    ino_t parent_ino;
+    ino_t ino;
+    umode_t mode;
+};
+
+static struct vtfs_node vtfs_nodes[VTFS_NODES_MAX];
 
 static struct dentry* vtfs_mount(struct file_system_type*, int, const char*, void*);
 static void vtfs_kill_sb(struct super_block*);
@@ -34,10 +47,13 @@ struct inode_operations vtfs_inode_ops = {
     .unlink = vtfs_unlink,
 };
 
-static unsigned int mask = 0;
-
 struct file_operations vtfs_dir_ops = {
     .iterate_shared = vtfs_iterate,
+};
+
+struct file_operations vtfs_file_ops = {
+    .read = NULL,
+    .write = NULL,
 };
 
 static struct inode *vtfs_get_inode(
@@ -55,15 +71,21 @@ static struct inode *vtfs_get_inode(
     inode->i_uid = GLOBAL_ROOT_UID;
     inode->i_gid = GLOBAL_ROOT_GID;
     inode->i_ino = i_ino;
-    inode->i_op = &vtfs_inode_ops;
 
-    inode->i_fop = &vtfs_dir_ops;
+    if (S_ISDIR(mode)) {
+        inode->i_op = &vtfs_inode_ops;
+        inode->i_fop = &simple_dir_operations;
+        inc_nlink(inode);
+    }
 
     return inode;
 }
 
 static int vtfs_fill_super(struct super_block *sb, void *data, int silent) {
-    struct inode *inode = vtfs_get_inode(sb, NULL, S_IFDIR | 0777, 100);
+    struct inode *inode = vtfs_get_inode(sb, NULL, S_IFDIR | 0777, ROOT_INODE_NUM);
+    if (inode == NULL) {
+        return -ENOMEM;
+    }
 
     sb->s_root = d_make_root(inode);
     if (sb->s_root == NULL) {
@@ -99,17 +121,6 @@ static struct dentry *vtfs_lookup(
     struct dentry *child_dentry, // объект, к которому мы пытаемся получить доступ
     unsigned int flag            // неиспользуемое значение
 ) {
-    ino_t root = parent_inode->i_ino;
-    const char *name = child_dentry->d_name.name;
-
-    if (root == 100 && !strcmp(name, "test.txt")) {
-        struct inode *inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFREG, 101);
-        d_add(child_dentry, inode);
-    } else if (root == 100 && !strcmp(name, "dir")) {
-        struct inode *inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFDIR, 200);
-        d_add(child_dentry, inode);
-    }
-    return NULL;
 }
 
 static int vtfs_create(
@@ -122,24 +133,42 @@ static int vtfs_create(
     ino_t root = parent_inode->i_ino;
     const char *name = child_dentry->d_name.name;
 
-    if (root == 100 && !strcmp(name, "test.txt")) {
-        struct inode *inode = vtfs_get_inode(
-            parent_inode->i_sb, NULL, S_IFREG | S_IRWXUGO, 101);
-        inode->i_op = &vtfs_inode_ops;
-        inode->i_fop = NULL;
-
-        d_add(child_dentry, inode);
-        mask |= 1;
-    } else if (root == 100 && !strcmp(name, "new_file.txt")) {
-        struct inode *inode = vtfs_get_inode(
-            parent_inode->i_sb, NULL, S_IFREG | S_IRWXUGO, 102);
-        inode->i_op = &vtfs_inode_ops;
-        inode->i_fop = NULL;
-
-        d_add(child_dentry, inode);
-        mask |= 2;
+    if (strlen(name) > NAME_MAX) {
+        return -ENAMETOOLONG;
     }
 
+    int slot = -1;
+
+    for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
+        if (vtfs_nodes[i].ino != 0 && vtfs_nodes[i].parent_ino == root) {
+            if (!strcmp(name, vtfs_nodes[i].name)) {
+                return -EEXIST;
+            }
+        } else if (vtfs_nodes[i].ino == 0 && slot == -1) {
+            slot = (int)i;
+        }
+    }
+
+    if (slot == -1) {
+        return -ENOSPC;
+    }
+
+    struct inode *inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFREG | mode, ROOT_INODE_NUM + 1 + slot);
+    if (inode == NULL) {
+        return -ENOMEM;
+    }
+
+    inode->i_op = &vtfs_inode_ops;
+    inode->i_fop = &vtfs_file_ops;
+
+    vtfs_nodes[slot].ino = inode->i_ino;
+    vtfs_nodes[slot].parent_ino = root;
+    vtfs_nodes[slot].mode = inode->i_mode;
+    strscpy(vtfs_nodes[slot].name, name, sizeof(vtfs_nodes[slot].name));
+
+    d_add(child_dentry, inode);
+
+    LOG("created file %s", name);
     return 0;
 }
 
