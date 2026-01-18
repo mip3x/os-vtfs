@@ -29,6 +29,12 @@ struct vtfs_node {
     size_t children;
 };
 
+// iterator
+struct vtfs_list_iter {
+    ino_t parent;
+    size_t idx;
+};
+
 static struct vtfs_node vtfs_nodes[VTFS_NODES_MAX];
 
 static struct dentry* vtfs_mount(struct file_system_type*, int, const char*, void*);
@@ -59,7 +65,8 @@ static int vtfs_store_find(ino_t parent_ino, const char *name, struct vtfs_node 
 static int vtfs_store_add(int *slot, struct vtfs_node **out);
 static int vtfs_store_fill(struct inode *parent_inode, struct inode *inode, const char *name);
 static int vtfs_store_remove(struct inode *parent_inode, struct vtfs_node *node, bool type);
-static int vtfs_store_list(ino_t parent_ino, struct vtfs_node **list, size_t *count);
+static void vtfs_store_list_init(struct vtfs_list_iter *iter, ino_t parent);
+static int vtfs_store_list_next(struct vtfs_list_iter *iter, struct vtfs_node **out);
 
 struct file_system_type vtfs_fs_type = {
     .name = "vtfs",
@@ -154,6 +161,25 @@ static int vtfs_store_fill(struct inode *parent_inode, struct inode *inode, cons
     strscpy(node->name, name, sizeof(node->name));
 
     return 0;
+}
+
+static void vtfs_store_list_init(struct vtfs_list_iter *iter, ino_t parent) {
+    iter->parent = parent;
+    iter->idx = 0;
+}
+
+static int vtfs_store_list_next(struct vtfs_list_iter *iter, struct vtfs_node **out) {
+    for (; iter->idx < VTFS_NODES_MAX; iter->idx++) {
+        struct vtfs_node *node = &vtfs_nodes[iter->idx];
+        if (node->ino == 0 || node->parent_ino != iter->parent) {
+            continue;
+        }
+
+        *out = node;
+        iter->idx++;
+        return 0;
+    }
+    return -ENOENT;
 }
 
 static struct inode *vtfs_get_inode(
@@ -404,26 +430,23 @@ static int vtfs_iterate(struct file *filp, struct dir_context *ctx) {
     }
 
     size_t want_skip = (ctx->pos >= 2) ? (size_t)(ctx->pos - 2) : 0;
-    size_t idx = 0;
+    struct vtfs_node *node = NULL;
+    struct vtfs_list_iter iter;
 
-    for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
-        struct vtfs_node *node = &vtfs_nodes[i];
-        if (node->ino == 0 || node->parent_ino != root) {
-            continue;
+    vtfs_store_list_init(&iter, root);
+    while (want_skip > 0) {
+        if (vtfs_store_list_next(&iter, &node) != 0) {
+            return 0;
         }
+        want_skip--;
+    }
 
-        if (idx < want_skip) {
-            idx++;
-            continue;
-        }
-
+    while (vtfs_store_list_next(&iter, &node) == 0) {
         unsigned char ftype = S_ISDIR(node->mode) ? DT_DIR : DT_REG;
         if (!dir_emit(ctx, node->name, strlen(node->name), node->ino, ftype)) {
             return 0;
         }
-
         ctx->pos++;
-        idx++;
     }
 
     return 0;
