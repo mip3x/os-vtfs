@@ -20,6 +20,7 @@ MODULE_DESCRIPTION("A simple FS kernel module");
 #define ROOT_INODE_NUM 1
 #define FTYPE_FILE 0
 #define FTYPE_DIR 1
+#define MAXFILE_SIZE 1048576
 
 struct vtfs_node {
     char name[NAME_MAX];
@@ -27,6 +28,8 @@ struct vtfs_node {
     ino_t ino;
     umode_t mode;
     size_t children;
+    void *data;
+    loff_t capacity;
 };
 
 // iterator
@@ -117,6 +120,10 @@ static int vtfs_store_remove(struct inode *parent_inode, struct vtfs_node *node,
     node->parent_ino = 0;
     node->mode = 0;
     node->children = 0;
+    if (node->data != NULL) {
+        kfree(node->data);
+    }
+    node->data = NULL;
 
     struct vtfs_node *parent_node = (struct vtfs_node *)parent_inode->i_private;
     if (parent_node != NULL) {
@@ -159,6 +166,7 @@ static int vtfs_store_fill(struct inode *parent_inode, struct inode *inode, cons
     node->mode = inode->i_mode;
     node->children = 0;
     strscpy(node->name, name, sizeof(node->name));
+    node->data = NULL;
 
     return 0;
 }
@@ -252,7 +260,41 @@ static ssize_t vtfs_read(
     size_t len,             // длина данных для записи
     loff_t *offset          // смещение
 ) {
-    return 0;
+    struct inode *inode = file_inode(filp);
+    ssize_t bytes_read = 0;
+    loff_t pos = *offset;
+
+    if (pos >= inode->i_size || pos >= MAXFILE_SIZE) {
+        return 0;
+    }
+
+    ssize_t bytes_to_read = min_t(size_t, len, inode->i_size - pos);
+    struct vtfs_node *node = (struct vtfs_node *)inode->i_private;
+    if (node->data == NULL) {
+        return 0;
+    }
+
+    while (bytes_to_read > 0) {
+        ssize_t ret = (ssize_t)copy_to_user(
+            buffer + bytes_read,
+            node->data + pos,
+            bytes_to_read
+        );
+        ssize_t read = bytes_to_read - ret;
+        if (read == 0) {
+            break;
+        }
+
+        bytes_read += read;
+        pos += read;
+        bytes_to_read = ret;
+    }
+
+    *offset = pos;
+    if (bytes_read > 0) {
+        return bytes_read;
+    }
+    return -EFAULT;
 }
 
 static ssize_t vtfs_write(
@@ -261,7 +303,60 @@ static ssize_t vtfs_write(
     size_t len, 
     loff_t *offset
 ) {
-    return 0;
+    struct inode *inode = file_inode(filp);
+    ssize_t bytes_wrote = 0;
+    loff_t pos = *offset;
+
+    if (pos > inode->i_size) {
+        return -EINVAL;
+    }
+    if (pos >= MAXFILE_SIZE) {
+        return -ENOSPC;
+    }
+
+    ssize_t bytes_to_write = min_t(size_t, len, MAXFILE_SIZE - pos);
+
+    struct vtfs_node *node = (struct vtfs_node *)inode->i_private;
+    if (node->data == NULL) {
+        node->data = kmalloc(pos + bytes_to_write, GFP_KERNEL);
+        if (node->data == NULL) {
+            return -ENOMEM;
+        }
+        node->capacity = pos + bytes_to_write; // allocated size
+    }
+
+    if ((*offset + bytes_to_write) > node->capacity) {
+        size_t need_to_alloc = (*offset + bytes_to_write) - node->capacity;
+        node->data = krealloc(node->data, node->capacity + need_to_alloc, GFP_KERNEL);
+        if (node->data == NULL) {
+            return -ENOMEM;
+        }
+        node->capacity += (loff_t)need_to_alloc;
+    } 
+
+    while (bytes_to_write > 0) {
+        ssize_t ret = (ssize_t)copy_from_user(
+            node->data + pos,
+            buffer + bytes_wrote,
+            bytes_to_write
+        );
+        ssize_t written = bytes_to_write - ret;
+        if (written == 0) {
+            break;
+        }
+
+        bytes_wrote += written;
+        pos += written;
+        bytes_to_write = ret;
+    }
+
+    inode->i_size = max(pos, inode->i_size);
+    *offset = pos;
+
+    if (bytes_wrote > 0) {
+        return bytes_wrote;
+    }
+    return -EFAULT;
 }
 
 static struct dentry *vtfs_lookup(
