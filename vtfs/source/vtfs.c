@@ -66,7 +66,7 @@ static int vtfs_mkdir(struct mnt_idmap *idmap, struct inode *parent_inode, struc
 static int vtfs_link(struct dentry *target_dentry, struct inode *parent_dir, struct dentry *link_dentry);
 
 // remove group
-static int vtfs_rmobj(struct inode *parent_inode, struct dentry *child_dentry, bool type);
+static int vtfs_rmobj(struct inode *parent_inode, struct dentry *child_dentry, char type);
 static int vtfs_unlink(struct inode *parent_inode, struct dentry *child_dentry);
 static int vtfs_rmdir(struct inode *parent_inode, struct dentry *child_dentry);
 
@@ -80,7 +80,7 @@ static int vtfs_dirent_alloc(int *slot, struct vtfs_dirent **out);
 static int vtfs_vinode_alloc(int *slot, struct vtfs_inode **out);
 static int vtfs_dirent_fill(struct vtfs_inode *parent_vinode, struct vtfs_inode *vinode, struct vtfs_dirent *dirent, const char *name);
 static int vtfs_vinode_fill(struct inode *inode, struct vtfs_inode *vinode);
-static int vtfs_dirent_remove(struct vtfs_dirent *dirent, bool type);
+static int vtfs_dirent_remove(struct vtfs_dirent *dirent, char type);
 static int vtfs_vinode_remove(struct vtfs_inode *vinode);
 static void vtfs_dirent_list_init(struct vtfs_list_iter *iter, struct vtfs_inode *parent_vinode);
 static int vtfs_dirent_list_next(struct vtfs_list_iter *iter, struct vtfs_dirent **out);
@@ -122,7 +122,7 @@ static int vtfs_dirent_find(struct vtfs_inode *parent_vinode, const char *name, 
     return -ENOENT;
 }
 
-static int vtfs_dirent_remove(struct vtfs_dirent *dirent, bool type) {
+static int vtfs_dirent_remove(struct vtfs_dirent *dirent, char type) {
     struct vtfs_inode *vinode = dirent->vinode;
 
     if (type == FTYPE_DIR && vinode->children != 0) {
@@ -529,6 +529,8 @@ static int vtfs_mkobj(
     } else if (type == FTYPE_HLINK) {
         // inode for hardlink already allocated
         inode = target_dentry->d_inode;
+        // increases i_count
+        ihold(inode);
     }
     if (inode == NULL) {
         return -ENOMEM;
@@ -628,7 +630,7 @@ static int vtfs_link(
 static int vtfs_rmobj(
     struct inode *parent_inode,
     struct dentry *child_dentry,
-    bool type // 0 - file; 1 - dir
+    char type // 0 - file; 1 - dir; 2 - hardlink
 ) {
     struct vtfs_inode *parent_vinode = (struct vtfs_inode *)parent_inode->i_private;
     const char *name = (const char *)child_dentry->d_name.name;
