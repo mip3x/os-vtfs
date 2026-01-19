@@ -5,10 +5,10 @@
 #include "vtfs.h"
 
 static ssize_t vtfs_read(
-    struct file *filp,      // файловый дескриптор
-    char __user *buffer,    // буфер в user-space для чтения и записи соответственно
-    size_t len,             // длина данных для записи
-    loff_t *offset          // смещение
+    struct file *filp,      // file descriptor
+    char __user *buffer,    // buffer in user-space for reading (and writing for vtfs_write)
+    size_t len,             // length of data to read
+    loff_t *offset          // offset
 ) {
     struct inode *inode = file_inode(filp);
     ssize_t bytes_read = 0;
