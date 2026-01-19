@@ -1,5 +1,5 @@
 obj-m += vtfs.o 
-vtfs-objs := source/fs.o source/inode.o source/dir.o source/file.o source/store.o
+vtfs-objs := fs/fs.o fs/inode.o fs/dir.o fs/file.o fs/store.o
 
 PWD := $(CURDIR) 
 KDIR = /lib/modules/`uname -r`/build
