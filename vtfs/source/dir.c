@@ -1,7 +1,7 @@
 #include <linux/fs.h>
 
-#include "vtfs.h"
 #include "store.h"
+#include "vtfs.h"
 
 static int vtfs_iterate(struct file *filp, struct dir_context *ctx) {
     struct inode *inode = file_inode(filp);

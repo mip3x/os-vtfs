@@ -5,7 +5,11 @@ const int SERVER_PORT = 8080;
 
 // callee should call free_request on received buffer
 int fill_request(
-    struct kvec *vec, const char *token, const char *method, size_t arg_size, va_list args
+    struct kvec *vec,
+    const char *token,
+    const char *method,
+    size_t arg_size,
+    va_list args
 ) {
     // 2048 bytes for URL and 64 bytes for anything else
     char *request_buffer = kzalloc(2048 + 64, GFP_KERNEL);
@@ -61,7 +65,10 @@ int receive_all(struct socket *sock, char *buffer, size_t buffer_size) {
 }
 
 int64_t parse_http_response(
-    char *raw_response, size_t raw_response_size, char *response, size_t response_size
+    char *raw_response,
+    size_t raw_response_size,
+    char *response,
+    size_t response_size
 ) {
     char *buffer = raw_response;
 
@@ -86,7 +93,7 @@ int64_t parse_http_response(
             return -6;
         }
         char *header = strsep(&buffer, "\r");
-        ++header;  // skip \n
+        ++header; // skip \n
         if (strcmp(header, "") == 0) {
             // end of headers
             break;
@@ -100,7 +107,7 @@ int64_t parse_http_response(
             printk(KERN_INFO "Received response with content length %d\n", length);
         }
     }
-    ++buffer;  // skip last '\n'
+    ++buffer; // skip last '\n'
 
     if (length == -1) {
         return -6;
@@ -181,7 +188,7 @@ int64_t vtfs_http_call(
         return -3;
     }
 
-    size_t raw_buffer_size = buffer_size + 1024;  // add 1KB for HTTP headers
+    size_t raw_buffer_size = buffer_size + 1024; // add 1KB for HTTP headers
     char *raw_response_buffer = kmalloc(raw_buffer_size, GFP_KERNEL);
     if (raw_response_buffer == 0) {
         kernel_sock_shutdown(sock, SHUT_RDWR);

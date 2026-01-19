@@ -1,14 +1,14 @@
 #include <linux/fs.h>
-#include <linux/uaccess.h>
 #include <linux/slab.h>
+#include <linux/uaccess.h>
 
 #include "vtfs.h"
 
 static ssize_t vtfs_read(
-    struct file *filp,      // file descriptor
-    char __user *buffer,    // buffer in user-space for reading (and writing for vtfs_write)
-    size_t len,             // length of data to read
-    loff_t *offset          // offset
+    struct file *filp,   // file descriptor
+    char __user *buffer, // buffer in user-space for reading (and writing for vtfs_write)
+    size_t len,          // length of data to read
+    loff_t *offset       // offset
 ) {
     struct inode *inode = file_inode(filp);
     ssize_t bytes_read = 0;
@@ -25,11 +25,7 @@ static ssize_t vtfs_read(
     }
 
     while (bytes_to_read > 0) {
-        ssize_t ret = (ssize_t)copy_to_user(
-            buffer + bytes_read,
-            vinode->data + pos,
-            bytes_to_read
-        );
+        ssize_t ret = (ssize_t)copy_to_user(buffer + bytes_read, vinode->data + pos, bytes_to_read);
         ssize_t read = bytes_to_read - ret;
         if (read == 0) {
             break;
@@ -47,12 +43,8 @@ static ssize_t vtfs_read(
     return -EFAULT;
 }
 
-static ssize_t vtfs_write(
-    struct file *filp, 
-    const char __user *buffer, 
-    size_t len, 
-    loff_t *offset
-) {
+static ssize_t
+vtfs_write(struct file *filp, const char __user *buffer, size_t len, loff_t *offset) {
     struct inode *inode = file_inode(filp);
     ssize_t bytes_wrote = 0;
     loff_t pos = *offset;
@@ -82,14 +74,11 @@ static ssize_t vtfs_write(
             return -ENOMEM;
         }
         vinode->capacity += (loff_t)need_to_alloc;
-    } 
+    }
 
     while (bytes_to_write > 0) {
-        ssize_t ret = (ssize_t)copy_from_user(
-            vinode->data + pos,
-            buffer + bytes_wrote,
-            bytes_to_write
-        );
+        ssize_t ret =
+            (ssize_t)copy_from_user(vinode->data + pos, buffer + bytes_wrote, bytes_to_write);
         ssize_t written = bytes_to_write - ret;
         if (written == 0) {
             break;

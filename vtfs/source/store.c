@@ -1,17 +1,16 @@
+#include "store.h"
+
 #include <linux/string.h>
 
 #include "vtfs.h"
-#include "store.h"
 
 struct vtfs_dirent vtfs_dirents[VTFS_NODES_MAX];
 struct vtfs_inode vtfs_inodes[VTFS_NODES_MAX];
 
 int vtfs_dirent_find(struct vtfs_inode *parent_vinode, const char *name, struct vtfs_dirent **out) {
     for (size_t i = 0; i < VTFS_NODES_MAX; i++) {
-        if (vtfs_dirents[i].used == true &&
-            vtfs_dirents[i].parent_vinode == parent_vinode &&
-            !strcmp(vtfs_dirents[i].name, name)
-        ) {
+        if (vtfs_dirents[i].used == true && vtfs_dirents[i].parent_vinode == parent_vinode &&
+            !strcmp(vtfs_dirents[i].name, name)) {
             *out = &vtfs_dirents[i];
             return 0;
         }
@@ -44,7 +43,7 @@ int vtfs_dirent_remove(struct vtfs_dirent *dirent, char type) {
         vinode->nlink--;
     }
     dirent->vinode = NULL;
-    
+
     return 0;
 }
 

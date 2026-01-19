@@ -1,10 +1,10 @@
-#include <linux/module.h>
-#include <linux/printk.h>
 #include <linux/fs.h>
+#include <linux/module.h>
 #include <linux/mount.h>
+#include <linux/printk.h>
 
-#include "vtfs.h"
 #include "store.h"
+#include "vtfs.h"
 
 // references:
 // https://docs.kernel.org/filesystems/vfs.html
@@ -43,16 +43,12 @@ static int vtfs_fill_super(struct super_block *sb, void *data, int silent) {
     return 0;
 }
 
-static void vtfs_kill_sb(struct super_block* sb) {
+static void vtfs_kill_sb(struct super_block *sb) {
     LOG("vtfs super block is destroyed. Unmount successfully.\n");
 }
 
-static struct dentry *vtfs_mount(
-    struct file_system_type *fs_type,
-    int flags,
-    const char *token,
-    void *data
-) {
+static struct dentry *
+vtfs_mount(struct file_system_type *fs_type, int flags, const char *token, void *data) {
     struct dentry *ret = mount_nodev(fs_type, flags, data, vtfs_fill_super);
     if (ret == NULL) {
         ERR("Can't mount file system\n");

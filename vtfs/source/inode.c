@@ -1,8 +1,8 @@
-#include <linux/fs.h>
 #include <linux/dcache.h>
+#include <linux/fs.h>
 
-#include "vtfs.h"
 #include "store.h"
+#include "vtfs.h"
 
 struct inode *vtfs_get_inode(
     struct super_block *sb,
@@ -102,7 +102,7 @@ static int vtfs_mkobj(
             ERR("file %s already exists\n", name);
         }
         return -EEXIST;
-    } 
+    }
     if (ret != -ENOENT) {
         return ret;
     }
@@ -116,9 +116,21 @@ static int vtfs_mkobj(
 
     struct inode *inode = NULL;
     if (type == FTYPE_DIR) {
-        inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFDIR | mode, ROOT_INODE_NUM + 1 + slot, idmap);
+        inode = vtfs_get_inode(
+            parent_inode->i_sb,
+            NULL,
+            S_IFDIR | mode,
+            ROOT_INODE_NUM + 1 + slot,
+            idmap
+        );
     } else if (type == FTYPE_FILE) {
-        inode = vtfs_get_inode(parent_inode->i_sb, NULL, S_IFREG | mode, ROOT_INODE_NUM + 1 + slot, idmap);
+        inode = vtfs_get_inode(
+            parent_inode->i_sb,
+            NULL,
+            S_IFREG | mode,
+            ROOT_INODE_NUM + 1 + slot,
+            idmap
+        );
     } else if (type == FTYPE_HLINK) {
         // inode for hardlink already allocated
         inode = target_dentry->d_inode;
@@ -196,19 +208,16 @@ static int vtfs_mkdir(
 
 static int vtfs_create(
     struct mnt_idmap *idmap,
-    struct inode *parent_inode, 
-    struct dentry *child_dentry, 
-    umode_t mode, 
+    struct inode *parent_inode,
+    struct dentry *child_dentry,
+    umode_t mode,
     bool b
 ) {
     return vtfs_mkobj(idmap, parent_inode, NULL, child_dentry, mode, FTYPE_FILE);
 }
 
-static int vtfs_link(
-    struct dentry *target_dentry,
-    struct inode *parent_dir,
-    struct dentry *link_dentry
-) {
+static int
+vtfs_link(struct dentry *target_dentry, struct inode *parent_dir, struct dentry *link_dentry) {
     umode_t mode = target_dentry->d_inode->i_mode;
     // restricted to create hard link to directory; only to files
     if (S_ISDIR(mode)) {
@@ -244,7 +253,7 @@ static int vtfs_rmobj(
     set_nlink(d_inode(child_dentry), vinode->nlink);
 
     // if vinode->nlink == 0 it means
-    // that removed dirent was the only pointed to this vinode 
+    // that removed dirent was the only pointed to this vinode
     if (vinode->nlink == 0) {
         int ret = vtfs_vinode_remove(vinode);
         if (ret != 0) {
@@ -304,7 +313,7 @@ static int vtfs_rename(
     int ret = vtfs_dirent_find(old_parent_vinode, old_name, &src_dirent);
     if (ret != 0) {
         return ret;
-    } 
+    }
 
     // main vinode; trying to move it
     struct vtfs_inode *src_vinode = src_dirent->vinode;
@@ -324,7 +333,7 @@ static int vtfs_rename(
         if (S_ISDIR(dst_vinode->mode) && dst_vinode->children != 0) {
             ERR("dir %s already exists & not empty\n", new_name);
             return -ENOTEMPTY;
-        } 
+        }
 
         char type = S_ISDIR(dst_dirent->vinode->mode) ? FTYPE_DIR : FTYPE_FILE;
         // trying to clear fields of dirent
@@ -337,7 +346,7 @@ static int vtfs_rename(
         }
 
         // if vinode->nlink == 0 it means
-        // that removed dirent was the only pointed to this vinode 
+        // that removed dirent was the only pointed to this vinode
         if (dst_vinode->nlink == 0) {
             int ret = vtfs_vinode_remove(dst_vinode);
             if (ret != 0) {

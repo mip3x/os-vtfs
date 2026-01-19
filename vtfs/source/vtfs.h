@@ -2,8 +2,8 @@
 
 #include <linux/fs.h>
 #include <linux/limits.h>
-#include <linux/types.h>
 #include <linux/printk.h>
+#include <linux/types.h>
 
 #define MODULE_NAME "vtfs"
 
@@ -42,7 +42,13 @@ struct vtfs_list_iter {
 };
 
 // get_inode
-struct inode *vtfs_get_inode(struct super_block *sb, const struct inode *dir, umode_t mode, ino_t i_ino, struct mnt_idmap *idmap);
+struct inode *vtfs_get_inode(
+    struct super_block *sb,
+    const struct inode *dir,
+    umode_t mode,
+    ino_t i_ino,
+    struct mnt_idmap *idmap
+);
 
 extern const struct inode_operations vtfs_inode_ops;
 extern const struct file_operations vtfs_file_ops;
