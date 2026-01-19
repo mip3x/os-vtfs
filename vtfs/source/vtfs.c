@@ -21,7 +21,7 @@ MODULE_DESCRIPTION("A simple FS kernel module");
 #define FTYPE_FILE 0
 #define FTYPE_DIR 1
 #define FTYPE_HLINK 2
-#define MAXFILE_SIZE 1048576
+#define MAXFILE_SIZE (128 * 1024 * 1024)
 
 struct vtfs_inode {
     bool used;
@@ -74,6 +74,12 @@ static int vtfs_rmdir(struct inode *parent_inode, struct dentry *child_dentry);
 static ssize_t vtfs_read(struct file *filp, char __user *buffer, size_t len, loff_t *offset);
 static ssize_t vtfs_write(struct file *filp, const char __user *buffer, size_t len, loff_t *offset);
 
+// rename
+static int vtfs_rename(struct mnt_idmap *idmap, struct inode *old_dir, struct dentry *old_dentry, struct inode *new_dir, struct dentry *new_dentry, unsigned int flags);
+
+// fsync
+static int vtfs_fsync(struct file *filp, loff_t start, loff_t end, int datasync);
+
 // backend group
 static int vtfs_dirent_find(struct vtfs_inode *parent_vinode, const char *name, struct vtfs_dirent **out);
 static int vtfs_dirent_alloc(int *slot, struct vtfs_dirent **out);
@@ -97,7 +103,8 @@ struct inode_operations vtfs_inode_ops = {
     .unlink = vtfs_unlink,
     .mkdir = vtfs_mkdir,
     .rmdir = vtfs_rmdir,
-    .link = vtfs_link
+    .link = vtfs_link,
+    .rename = vtfs_rename
 };
 
 struct file_operations vtfs_dir_ops = {
@@ -107,6 +114,7 @@ struct file_operations vtfs_dir_ops = {
 struct file_operations vtfs_file_ops = {
     .read = vtfs_read,
     .write = vtfs_write,
+    .fsync = vtfs_fsync
 };
 
 static int vtfs_dirent_find(struct vtfs_inode *parent_vinode, const char *name, struct vtfs_dirent **out) {
@@ -331,6 +339,108 @@ static struct dentry *vtfs_mount(
     }
 
     return ret;
+}
+
+static int vtfs_fsync(struct file *filp, loff_t start, loff_t end, int datasync) {
+    return 0;
+}
+
+static int vtfs_rename(
+    struct mnt_idmap *idmap,
+    struct inode *old_dir,
+    struct dentry *old_dentry,
+    struct inode *new_dir,
+    struct dentry *new_dentry,
+    unsigned int flags
+) {
+    if (flags) {
+        LOG("rename flags: %d\n", flags);
+        return -EINVAL;
+    }
+
+    struct vtfs_inode *old_parent_vinode = (struct vtfs_inode *)old_dir->i_private;
+    struct vtfs_inode *new_parent_vinode = (struct vtfs_inode *)new_dir->i_private;
+    const char *old_name = (const char *)old_dentry->d_name.name;
+    const char *new_name = (const char *)new_dentry->d_name.name;
+
+    if (old_dentry->d_name.len > NAME_MAX || new_dentry->d_name.len > NAME_MAX) {
+        return -ENAMETOOLONG;
+    }
+
+    struct vtfs_dirent *src_dirent = NULL;
+    int ret = vtfs_dirent_find(old_parent_vinode, old_name, &src_dirent);
+    if (ret != 0) {
+        return ret;
+    } 
+
+    // main vinode; trying to move it
+    struct vtfs_inode *src_vinode = src_dirent->vinode;
+
+    struct vtfs_dirent *dst_dirent = NULL;
+    ret = vtfs_dirent_find(new_parent_vinode, new_name, &dst_dirent);
+    if (ret == 0) {
+        struct vtfs_inode *dst_vinode = dst_dirent->vinode;
+        if (S_ISDIR(src_vinode->mode) && !S_ISDIR(dst_vinode->mode)) {
+            return -ENOTDIR;
+        }
+
+        if (!S_ISDIR(src_vinode->mode) && S_ISDIR(dst_vinode->mode)) {
+            return -EISDIR;
+        }
+
+        if (S_ISDIR(dst_vinode->mode) && dst_vinode->children != 0) {
+            ERR("dir %s already exists & not empty\n", new_name);
+            return -ENOTEMPTY;
+        } 
+
+        char type = S_ISDIR(dst_dirent->vinode->mode) ? FTYPE_DIR : FTYPE_FILE;
+        // trying to clear fields of dirent
+        ret = vtfs_dirent_remove(dst_dirent, type);
+        if (ret != 0) {
+            return ret;
+        }
+        if (d_inode(new_dentry)) {
+            set_nlink(d_inode(new_dentry), dst_vinode->nlink);
+        }
+
+        // if vinode->nlink == 0 it means
+        // that removed dirent was the only pointed to this vinode 
+        if (dst_vinode->nlink == 0) {
+            int ret = vtfs_vinode_remove(dst_vinode);
+            if (ret != 0) {
+                return ret;
+            }
+        }
+    }
+
+    // do nothing if src & dst are equal
+    if (old_parent_vinode == new_parent_vinode) {
+        goto change_name;
+    }
+
+    // deleting from old
+    old_parent_vinode->children--;
+    // moving to new
+    new_parent_vinode->children++;
+
+    if (S_ISDIR(src_vinode->mode)) {
+        // deleting from old
+        old_parent_vinode->nlink--;
+        set_nlink(old_dir, old_parent_vinode->nlink);
+
+        // moving to new
+        new_parent_vinode->nlink++;
+        set_nlink(new_dir, new_parent_vinode->nlink);
+    }
+
+    src_dirent->parent_vinode = new_parent_vinode;
+
+change_name:
+    strscpy(src_dirent->name, new_name, sizeof(src_dirent->name));
+
+    d_move(old_dentry, new_dentry);
+
+    return 0;
 }
 
 static ssize_t vtfs_read(
