@@ -59,11 +59,8 @@ vtfs_mount(struct file_system_type *fs_type, int flags, const char *token, void 
     return ret;
 }
 
-struct file_system_type vtfs_fs_type = {
-    .name = "vtfs",
-    .mount = vtfs_mount,
-    .kill_sb = vtfs_kill_sb
-};
+struct file_system_type vtfs_fs_type =
+    {.name = "vtfs", .mount = vtfs_mount, .kill_sb = vtfs_kill_sb};
 
 static int __init vtfs_init(void) {
     int ret = register_filesystem(&vtfs_fs_type);

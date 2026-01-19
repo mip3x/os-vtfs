@@ -104,8 +104,5 @@ static int vtfs_fsync(struct file *filp, loff_t start, loff_t end, int datasync)
     return 0;
 }
 
-const struct file_operations vtfs_file_ops = {
-    .read = vtfs_read,
-    .write = vtfs_write,
-    .fsync = vtfs_fsync
-};
+const struct file_operations vtfs_file_ops =
+    {.read = vtfs_read, .write = vtfs_write, .fsync = vtfs_fsync};
